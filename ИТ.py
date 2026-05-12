@@ -3,181 +3,165 @@ from tkinter import ttk, messagebox
 import requests
 import json
 import os
-from PIL import Image, ImageTk   # для отображения аватаров
 from io import BytesIO
+from PIL import Image, ImageTk
 
 FAVORITES_FILE = "favorites.json"
-
-def load_favorites():
-    if os.path.exists(FAVORITES_FILE):
-        with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-def save_favorites(favorites):
-    with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
-        json.dump(favorites, f, indent=2)
-
-GITHUB_API_SEARCH = "https://api.github.com/search/users"
-
-def search_users(query):
-    """Возвращает список найденных пользователей или None при ошибке"""
-    params = {"q": query, "per_page": 20}
-    try:
-        response = requests.get(GITHUB_API_SEARCH, params=params)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("items", [])
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("Ошибка API", f"Не удалось выполнить поиск:\n{e}")
-        return None
 
 class GitHubUserFinder:
     def __init__(self, root):
         self.root = root
         self.root.title("GitHub User Finder")
-        self.root.geometry("800x600")
-        self.favorites = load_favorites()  # список логинов
+        self.root.geometry("900x600")
 
-        tk.Label(root, text="Введите имя пользователя GitHub:").pack(pady=5)
-        self.entry = tk.Entry(root, width=50)
-        self.entry.pack(pady=5)
-        self.entry.bind("<Return>", lambda e: self.search())
+        self.favorites = self.load_favorites()
+        self.avatar_images = {}
 
-        tk.Button(root, text="Поиск", command=self.search).pack(pady=5)
+        self.create_widgets()
+        self.update_favorites_display()
 
-        columns = ("Логин", "Аватар", "Ссылка", "Действие")
-        self.tree = ttk.Treeview(root, columns=columns, show="headings", height=15)
-        self.tree.heading("Логин", text="Логин")
-        self.tree.heading("Аватар", text="Аватар (ID)")
-        self.tree.heading("Ссылка", text="Профиль")
-        self.tree.heading("Действие", text="")
-        self.tree.column("Логин", width=150)
-        self.tree.column("Аватар", width=80)
-        self.tree.column("Ссылка", width=300)
-        self.tree.column("Действие", width=100)
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def create_widgets(self):
+        top_frame = tk.Frame(self.root)
+        top_frame.pack(pady=10, fill=tk.X)
 
-        tk.Button(root, text="Показать избранное", command=self.show_favorites).pack(pady=5)
+        tk.Label(top_frame, text="Username:").pack(side=tk.LEFT, padx=5)
+        self.search_entry = tk.Entry(top_frame, width=40)
+        self.search_entry.pack(side=tk.LEFT, padx=5)
+        search_btn = tk.Button(top_frame, text="Search", command=self.search_users)
+        search_btn.pack(side=tk.LEFT, padx=5)
 
-        self.buttons = {}
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.tree.bind("<Double-1>", self.open_profile)
+        left_frame = tk.LabelFrame(main_frame, text="Search Results")
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-    def search(self):
-        query = self.entry.get().strip()
+        self.results_tree = ttk.Treeview(left_frame, columns=("avatar", "username"), show="headings", height=20)
+        self.results_tree.heading("avatar", text="Avatar")
+        self.results_tree.heading("username", text="Username")
+        self.results_tree.column("avatar", width=60, anchor="center")
+        self.results_tree.column("username", width=150)
+        self.results_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.results_tree.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.results_tree.configure(yscrollcommand=scrollbar.set)
+
+        add_fav_btn = tk.Button(left_frame, text="Add to Favorites", command=self.add_to_favorites)
+        add_fav_btn.pack(pady=5)
+
+        right_frame = tk.LabelFrame(main_frame, text="Favorites")
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.fav_tree = ttk.Treeview(right_frame, columns=("username",), show="headings", height=20)
+        self.fav_tree.heading("username", text="Username")
+        self.fav_tree.column("username", width=200)
+        self.fav_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        fav_scrollbar = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=self.fav_tree.yview)
+        fav_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.fav_tree.configure(yscrollcommand=fav_scrollbar.set)
+
+        remove_fav_btn = tk.Button(right_frame, text="Remove from Favorites", command=self.remove_from_favorites)
+        remove_fav_btn.pack(pady=5)
+
+        bottom_frame = tk.Frame(self.root)
+        bottom_frame.pack(pady=10)
+
+        save_btn = tk.Button(bottom_frame, text="Save Favorites to JSON", command=self.save_favorites_to_file)
+        save_btn.pack(side=tk.LEFT, padx=5)
+
+        load_btn = tk.Button(bottom_frame, text="Load Favorites from JSON", command=self.load_favorites_from_file)
+        load_btn.pack(side=tk.LEFT, padx=5)
+
+    def load_favorites(self):
+        if os.path.exists(FAVORITES_FILE):
+            with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+                try:
+                    return json.load(f)
+                except:
+                    return []
+        return []
+
+    def save_favorites_to_file(self):
+        with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.favorites, f, indent=4)
+        messagebox.showinfo("Saved", f"Favorites saved to {FAVORITES_FILE}")
+
+    def load_favorites_from_file(self):
+        if os.path.exists(FAVORITES_FILE):
+            with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+                try:
+                    self.favorites = json.load(f)
+                    self.update_favorites_display()
+                    messagebox.showinfo("Loaded", "Favorites loaded from file")
+                except:
+                    messagebox.showerror("Error", "Invalid JSON file")
+        else:
+            messagebox.showwarning("Not found", f"{FAVORITES_FILE} does not exist")
+
+    def search_users(self):
+        query = self.search_entry.get().strip()
         if not query:
-            messagebox.showwarning("Пустой запрос", "Поле поиска не должно быть пустым!")
+            messagebox.showwarning("Input Error", "Search field cannot be empty")
             return
 
-        users = search_users(query)
-        if users is None:
-            return
-        self.display_results(users)
-
-    def display_results(self, users):
-
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-        self.buttons.clear()
-
-        for user in users:
-            login = user["login"]
-            avatar_url = user["avatar_url"]
-            profile_url = user["html_url"]
-
-            item_id = self.tree.insert("", tk.END, values=(login, "Загрузка...", profile_url, ""))
-
-            self.load_avatar(avatar_url, item_id)
-
-            if login in self.favorites:
-                btn_text = "Удалить"
-                cmd = lambda l=login: self.remove_from_favorites(l)
-            else:
-                btn_text = "В избранное"
-                cmd = lambda l=login: self.add_to_favorites(l)
-
-            btn = tk.Button(self.tree, text=btn_text, command=cmd)
-            self.tree.set(item_id, "Действие", "")
-            self.tree.update_idletasks()"
-            self.tree.set(item_id, "Действие", btn_text) 
-        self.refresh_favorite_indicators(users)
-
-    def load_avatar(self, url, item_id):
+        url = f"https://api.github.com/search/users?q={query}"
         try:
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
-            img_data = response.content
-            img = Image.open(BytesIO(img_data))
-            img = img.resize((40, 40), Image.LANCZOS)
-            photo = ImageTk.PhotoImage(img)
-            if not hasattr(self, 'avatar_images'):
-                self.avatar_images = {}
-            self.avatar_images[item_id] = photo
-            self.tree.set(item_id, "Аватар", "✅")  
-            self.tree.set(item_id, "Аватар", "🖼️")
-        except:
-            self.tree.set(item_id, "Аватар", "❌")
+            response = requests.get(url)
+            if response.status_code == 200:
+                data = response.json()
+                users = data.get("items", [])
+                self.results_tree.delete(*self.results_tree.get_children())
+                for user in users:
+                    username = user["login"]
+                    avatar_url = user["avatar_url"]
+                    self.add_user_to_results(username, avatar_url)
+            else:
+                messagebox.showerror("API Error", f"Error {response.status_code}: {response.text}")
+        except Exception as e:
+            messagebox.showerror("Connection Error", str(e))
 
-    def refresh_favorite_indicators(self, users):
-        for user in users:
-            login = user["login"]
-            for item in self.tree.get_children():
-                if self.tree.item(item, "values")[0] == login:
-                    if login in self.favorites:
-                        self.tree.set(item, "Действие", "★ Удалить")
-                    else:
-                        self.tree.set(item, "Действие", "☆ Добавить")
-                    break
+    def add_user_to_results(self, username, avatar_url):
+        try:
+            img_data = requests.get(avatar_url).content
+            pil_img = Image.open(BytesIO(img_data))
+            pil_img = pil_img.resize((40, 40), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_img)
+            self.avatar_images[username] = photo
+            self.results_tree.insert("", tk.END, values=(username,), image=photo, tags=(username,))
+            self.results_tree.set(self.results_tree.get_children()[-1], "avatar", "")
+            self.results_tree.set(self.results_tree.get_children()[-1], "username", username)
+        except Exception:
+            self.results_tree.insert("", tk.END, values=("", username))
 
-    def add_to_favorites(self, login):
-        if login not in self.favorites:
-            self.favorites.append(login)
-            save_favorites(self.favorites)
-            messagebox.showinfo("Избранное", f"Пользователь {login} добавлен в избранное.")
-            self.update_favorite_display(login, True)
-
-    def remove_from_favorites(self, login):
-        if login in self.favorites:
-            self.favorites.remove(login)
-            save_favorites(self.favorites)
-            messagebox.showinfo("Избранное", f"Пользователь {login} удалён из избранного.")
-            self.update_favorite_display(login, False)
-
-    def update_favorite_display(self, login, is_favorite):
-        for item in self.tree.get_children():
-            if self.tree.item(item, "values")[0] == login:
-                if is_favorite:
-                    self.tree.set(item, "Действие", "★ Удалить")
-                else:
-                    self.tree.set(item, "Действие", "☆ Добавить")
-                break
-
-    def show_favorites(self):
-        if not self.favorites:
-            messagebox.showinfo("Избранное", "Список избранных пользователей пуст.")
+    def add_to_favorites(self):
+        selected = self.results_tree.selection()
+        if not selected:
+            messagebox.showwarning("No selection", "Please select a user from search results")
             return
-        favorites_data = []
-        for login in self.favorites:
-            url = f"https://api.github.com/users/{login}"
-            try:
-                resp = requests.get(url)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    favorites_data.append(data)
-                else:
-                    favorites_data.append({"login": login, "html_url": "#", "avatar_url": ""})
-            except:
-                favorites_data.append({"login": login, "html_url": "#", "avatar_url": ""})
-        self.display_results(favorites_data)
+        item = selected[0]
+        username = self.results_tree.item(item, "values")[1]
+        if username not in self.favorites:
+            self.favorites.append(username)
+            self.update_favorites_display()
+        else:
+            messagebox.showinfo("Already exists", f"{username} is already in favorites")
 
-    def open_profile(self, event):
-        """Открыть профиль по двойному клику"""
-        item = self.tree.selection()[0]
-        login = self.tree.item(item, "values")[0]
-        profile_url = self.tree.item(item, "values")[2]
-        import webbrowser
-        webbrowser.open(profile_url)
+    def remove_from_favorites(self):
+        selected = self.fav_tree.selection()
+        if not selected:
+            messagebox.showwarning("No selection", "Please select a user from favorites")
+            return
+        item = selected[0]
+        username = self.fav_tree.item(item, "values")[0]
+        self.favorites.remove(username)
+        self.update_favorites_display()
+
+    def update_favorites_display(self):
+        self.fav_tree.delete(*self.fav_tree.get_children())
+        for user in self.favorites:
+            self.fav_tree.insert("", tk.END, values=(user,))
 
 if __name__ == "__main__":
     root = tk.Tk()
