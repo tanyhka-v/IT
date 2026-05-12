@@ -12,7 +12,7 @@ class GitHubUserFinder:
     def __init__(self, root):
         self.root = root
         self.root.title("GitHub User Finder")
-        self.root.geometry("900x600")
+        self.root.geometry("800x600")
 
         self.favorites = self.load_favorites()
         self.avatar_images = {}
@@ -36,10 +36,10 @@ class GitHubUserFinder:
         left_frame = tk.LabelFrame(main_frame, text="Search Results")
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.results_tree = ttk.Treeview(left_frame, columns=("avatar", "username"), show="headings", height=20)
-        self.results_tree.heading("avatar", text="Avatar")
+        self.results_tree = ttk.Treeview(left_frame, columns=("username",), show="tree", height=20)
+        self.results_tree.heading("#0", text="Avatar")
         self.results_tree.heading("username", text="Username")
-        self.results_tree.column("avatar", width=60, anchor="center")
+        self.results_tree.column("#0", width=60, anchor="center")
         self.results_tree.column("username", width=150)
         self.results_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -129,11 +129,9 @@ class GitHubUserFinder:
             pil_img = pil_img.resize((40, 40), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(pil_img)
             self.avatar_images[username] = photo
-            self.results_tree.insert("", tk.END, values=(username,), image=photo, tags=(username,))
-            self.results_tree.set(self.results_tree.get_children()[-1], "avatar", "")
-            self.results_tree.set(self.results_tree.get_children()[-1], "username", username)
+            self.results_tree.insert("", tk.END, image=photo, values=(username,))
         except Exception:
-            self.results_tree.insert("", tk.END, values=("", username))
+            self.results_tree.insert("", tk.END, image="", values=(username,))
 
     def add_to_favorites(self):
         selected = self.results_tree.selection()
@@ -141,7 +139,10 @@ class GitHubUserFinder:
             messagebox.showwarning("No selection", "Please select a user from search results")
             return
         item = selected[0]
-        username = self.results_tree.item(item, "values")[1]
+        values = self.results_tree.item(item, "values")
+        if not values:
+            return
+        username = values[0]
         if username not in self.favorites:
             self.favorites.append(username)
             self.update_favorites_display()
