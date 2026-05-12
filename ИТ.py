@@ -6,7 +6,6 @@ import os
 from PIL import Image, ImageTk   # для отображения аватаров
 from io import BytesIO
 
-# ------------------ Работа с избранным ------------------
 FAVORITES_FILE = "favorites.json"
 
 def load_favorites():
@@ -19,7 +18,6 @@ def save_favorites(favorites):
     with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
         json.dump(favorites, f, indent=2)
 
-# ------------------ GitHub API ------------------
 GITHUB_API_SEARCH = "https://api.github.com/search/users"
 
 def search_users(query):
@@ -34,7 +32,6 @@ def search_users(query):
         messagebox.showerror("Ошибка API", f"Не удалось выполнить поиск:\n{e}")
         return None
 
-# ------------------ GUI приложение ------------------
 class GitHubUserFinder:
     def __init__(self, root):
         self.root = root
@@ -42,16 +39,13 @@ class GitHubUserFinder:
         self.root.geometry("800x600")
         self.favorites = load_favorites()  # список логинов
 
-        # Поле ввода
         tk.Label(root, text="Введите имя пользователя GitHub:").pack(pady=5)
         self.entry = tk.Entry(root, width=50)
         self.entry.pack(pady=5)
         self.entry.bind("<Return>", lambda e: self.search())
 
-        # Кнопка поиска
         tk.Button(root, text="Поиск", command=self.search).pack(pady=5)
 
-        # Таблица результатов
         columns = ("Логин", "Аватар", "Ссылка", "Действие")
         self.tree = ttk.Treeview(root, columns=columns, show="headings", height=15)
         self.tree.heading("Логин", text="Логин")
@@ -64,13 +58,10 @@ class GitHubUserFinder:
         self.tree.column("Действие", width=100)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Кнопка показать избранное
         tk.Button(root, text="Показать избранное", command=self.show_favorites).pack(pady=5)
 
-        # Словарь для хранения кнопок внутри строк (логин -> кнопка)
         self.buttons = {}
 
-        # Привязываем клик по строке для открытия профиля
         self.tree.bind("<Double-1>", self.open_profile)
 
     def search(self):
@@ -85,7 +76,7 @@ class GitHubUserFinder:
         self.display_results(users)
 
     def display_results(self, users):
-        # Очищаем таблицу
+
         for row in self.tree.get_children():
             self.tree.delete(row)
         self.buttons.clear()
@@ -95,13 +86,10 @@ class GitHubUserFinder:
             avatar_url = user["avatar_url"]
             profile_url = user["html_url"]
 
-            # Добавляем строку
             item_id = self.tree.insert("", tk.END, values=(login, "Загрузка...", profile_url, ""))
 
-            # Асинхронно загружаем аватар (для простоты используем after)
             self.load_avatar(avatar_url, item_id)
 
-            # Кнопка "В избранное" / "Удалить"
             if login in self.favorites:
                 btn_text = "Удалить"
                 cmd = lambda l=login: self.remove_from_favorites(l)
@@ -111,15 +99,8 @@ class GitHubUserFinder:
 
             btn = tk.Button(self.tree, text=btn_text, command=cmd)
             self.tree.set(item_id, "Действие", "")
-            self.tree.update_idletasks()
-            # Размещаем кнопку в столбце "Действие"
-            self.tree.set(item_id, "Действие", btn_text)  # временно текст, потом заменим
-            # Лучше использовать колонку для текста, но для кнопки нужен bind.
-            # Вариант: хранить кнопку отдельно и менять текст.
-            # Упростим – вместо кнопок будем использовать текст-ссылку и менять по клику.
-            # Переделаем: в колонке "Действие" будет текст "⭐" или "★", клик по строке.
-            # Так надёжнее.
-        # Переделаем: сделаем клик по строке для добавления/удаления, а текст с эмодзи.
+            self.tree.update_idletasks()"
+            self.tree.set(item_id, "Действие", btn_text) 
         self.refresh_favorite_indicators(users)
 
     def load_avatar(self, url, item_id):
@@ -130,12 +111,10 @@ class GitHubUserFinder:
             img = Image.open(BytesIO(img_data))
             img = img.resize((40, 40), Image.LANCZOS)
             photo = ImageTk.PhotoImage(img)
-            # Сохраняем ссылку, чтобы не удалил сборщик мусора
             if not hasattr(self, 'avatar_images'):
                 self.avatar_images = {}
             self.avatar_images[item_id] = photo
-            self.tree.set(item_id, "Аватар", "✅")  # просто индикатор
-            # Можно добавить картинку, но в Treeview сложно. Упростим до текста.
+            self.tree.set(item_id, "Аватар", "✅")  
             self.tree.set(item_id, "Аватар", "🖼️")
         except:
             self.tree.set(item_id, "Аватар", "❌")
@@ -143,7 +122,6 @@ class GitHubUserFinder:
     def refresh_favorite_indicators(self, users):
         for user in users:
             login = user["login"]
-            # Найти строку с этим логином
             for item in self.tree.get_children():
                 if self.tree.item(item, "values")[0] == login:
                     if login in self.favorites:
@@ -179,7 +157,6 @@ class GitHubUserFinder:
         if not self.favorites:
             messagebox.showinfo("Избранное", "Список избранных пользователей пуст.")
             return
-        # Делаем запрос по каждому пользователю, чтобы показать детали
         favorites_data = []
         for login in self.favorites:
             url = f"https://api.github.com/users/{login}"
