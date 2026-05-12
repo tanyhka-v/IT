@@ -1,170 +1,215 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import requests
 import json
 import os
-from io import BytesIO
-from PIL import Image, ImageTk
+from datetime import datetime
 
-FAVORITES_FILE = "favorites.json"
+EXPENSES_FILE = "expenses.json"
 
-class GitHubUserFinder:
+class ExpenseTracker:
     def __init__(self, root):
         self.root = root
-        self.root.title("GitHub User Finder")
-        self.root.geometry("800x600")
+        self.root.title("Expense Tracker")
+        self.root.geometry("900x600")
 
-        self.favorites = self.load_favorites()
-        self.avatar_images = {}
+        self.expenses = self.load_expenses()
+        self.categories = ["Food", "Transport", "Entertainment", "Health", "Shopping", "Bills", "Other"]
 
         self.create_widgets()
-        self.update_favorites_display()
+        self.update_expenses_table()
 
     def create_widgets(self):
-        top_frame = tk.Frame(self.root)
-        top_frame.pack(pady=10, fill=tk.X)
+        input_frame = tk.LabelFrame(self.root, text="Add Expense", padx=10, pady=10)
+        input_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Label(top_frame, text="Username:").pack(side=tk.LEFT, padx=5)
-        self.search_entry = tk.Entry(top_frame, width=40)
-        self.search_entry.pack(side=tk.LEFT, padx=5)
-        search_btn = tk.Button(top_frame, text="Search", command=self.search_users)
-        search_btn.pack(side=tk.LEFT, padx=5)
+        tk.Label(input_frame, text="Amount:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.amount_entry = tk.Entry(input_frame, width=15)
+        self.amount_entry.grid(row=0, column=1, padx=5, pady=5)
 
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        tk.Label(input_frame, text="Category:").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+        self.category_combo = ttk.Combobox(input_frame, values=self.categories, width=15)
+        self.category_combo.grid(row=0, column=3, padx=5, pady=5)
+        self.category_combo.current(0)
 
-        left_frame = tk.LabelFrame(main_frame, text="Search Results")
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        tk.Label(input_frame, text="Date (YYYY-MM-DD):").grid(row=0, column=4, sticky=tk.W, padx=5, pady=5)
+        self.date_entry = tk.Entry(input_frame, width=12)
+        self.date_entry.grid(row=0, column=5, padx=5, pady=5)
+        self.date_entry.insert(0, datetime.today().strftime("%Y-%m-%d"))
 
-        self.results_tree = ttk.Treeview(left_frame, columns=("username",), show="tree", height=20)
-        self.results_tree.heading("#0", text="Avatar")
-        self.results_tree.heading("username", text="Username")
-        self.results_tree.column("#0", width=60, anchor="center")
-        self.results_tree.column("username", width=150)
-        self.results_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        add_btn = tk.Button(input_frame, text="Add Expense", command=self.add_expense)
+        add_btn.grid(row=0, column=6, padx=10, pady=5)
 
-        scrollbar = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.results_tree.yview)
+        filter_frame = tk.LabelFrame(self.root, text="Filter", padx=10, pady=10)
+        filter_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        tk.Label(filter_frame, text="Category:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.filter_category = ttk.Combobox(filter_frame, values=["All"] + self.categories, width=15)
+        self.filter_category.grid(row=0, column=1, padx=5, pady=5)
+        self.filter_category.current(0)
+
+        tk.Label(filter_frame, text="From Date (YYYY-MM-DD):").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+        self.from_date_entry = tk.Entry(filter_frame, width=12)
+        self.from_date_entry.grid(row=0, column=3, padx=5, pady=5)
+
+        tk.Label(filter_frame, text="To Date (YYYY-MM-DD):").grid(row=0, column=4, sticky=tk.W, padx=5, pady=5)
+        self.to_date_entry = tk.Entry(filter_frame, width=12)
+        self.to_date_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        filter_btn = tk.Button(filter_frame, text="Apply Filter", command=self.apply_filter)
+        filter_btn.grid(row=0, column=6, padx=10, pady=5)
+
+        table_frame = tk.LabelFrame(self.root, text="Expenses", padx=10, pady=10)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        columns = ("id", "amount", "category", "date")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+        self.tree.heading("id", text="ID")
+        self.tree.heading("amount", text="Amount ($)")
+        self.tree.heading("category", text="Category")
+        self.tree.heading("date", text="Date")
+        self.tree.column("id", width=50)
+        self.tree.column("amount", width=100)
+        self.tree.column("category", width=150)
+        self.tree.column("date", width=120)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.results_tree.configure(yscrollcommand=scrollbar.set)
-
-        add_fav_btn = tk.Button(left_frame, text="Add to Favorites", command=self.add_to_favorites)
-        add_fav_btn.pack(pady=5)
-
-        right_frame = tk.LabelFrame(main_frame, text="Favorites")
-        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        self.fav_tree = ttk.Treeview(right_frame, columns=("username",), show="headings", height=20)
-        self.fav_tree.heading("username", text="Username")
-        self.fav_tree.column("username", width=200)
-        self.fav_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        fav_scrollbar = ttk.Scrollbar(right_frame, orient=tk.VERTICAL, command=self.fav_tree.yview)
-        fav_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.fav_tree.configure(yscrollcommand=fav_scrollbar.set)
-
-        remove_fav_btn = tk.Button(right_frame, text="Remove from Favorites", command=self.remove_from_favorites)
-        remove_fav_btn.pack(pady=5)
+        self.tree.configure(yscrollcommand=scrollbar.set)
 
         bottom_frame = tk.Frame(self.root)
-        bottom_frame.pack(pady=10)
+        bottom_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        save_btn = tk.Button(bottom_frame, text="Save Favorites to JSON", command=self.save_favorites_to_file)
-        save_btn.pack(side=tk.LEFT, padx=5)
+        total_label = tk.Label(bottom_frame, text="Total for filtered period: $0.00", font=("Arial", 12, "bold"))
+        total_label.pack(side=tk.LEFT, padx=5)
 
-        load_btn = tk.Button(bottom_frame, text="Load Favorites from JSON", command=self.load_favorites_from_file)
-        load_btn.pack(side=tk.LEFT, padx=5)
+        self.total_label = total_label
 
-    def load_favorites(self):
-        if os.path.exists(FAVORITES_FILE):
-            with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+        delete_btn = tk.Button(bottom_frame, text="Delete Selected", command=self.delete_expense)
+        delete_btn.pack(side=tk.RIGHT, padx=5)
+
+        save_btn = tk.Button(bottom_frame, text="Save to JSON", command=self.save_expenses_to_file)
+        save_btn.pack(side=tk.RIGHT, padx=5)
+
+    def load_expenses(self):
+        if os.path.exists(EXPENSES_FILE):
+            with open(EXPENSES_FILE, "r", encoding="utf-8") as f:
                 try:
                     return json.load(f)
                 except:
                     return []
         return []
 
-    def save_favorites_to_file(self):
-        with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.favorites, f, indent=4)
-        messagebox.showinfo("Saved", f"Favorites saved to {FAVORITES_FILE}")
+    def save_expenses_to_file(self):
+        with open(EXPENSES_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.expenses, f, indent=4)
+        messagebox.showinfo("Saved", f"Expenses saved to {EXPENSES_FILE}")
 
-    def load_favorites_from_file(self):
-        if os.path.exists(FAVORITES_FILE):
-            with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
-                try:
-                    self.favorites = json.load(f)
-                    self.update_favorites_display()
-                    messagebox.showinfo("Loaded", "Favorites loaded from file")
-                except:
-                    messagebox.showerror("Error", "Invalid JSON file")
-        else:
-            messagebox.showwarning("Not found", f"{FAVORITES_FILE} does not exist")
+    def add_expense(self):
+        amount_str = self.amount_entry.get().strip()
+        category = self.category_combo.get()
+        date_str = self.date_entry.get().strip()
 
-    def search_users(self):
-        query = self.search_entry.get().strip()
-        if not query:
-            messagebox.showwarning("Input Error", "Search field cannot be empty")
+        if not amount_str:
+            messagebox.showwarning("Input Error", "Amount cannot be empty")
+            return
+        try:
+            amount = float(amount_str)
+            if amount <= 0:
+                raise ValueError
+        except:
+            messagebox.showerror("Input Error", "Amount must be a positive number")
             return
 
-        url = f"https://api.github.com/search/users?q={query}"
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                users = data.get("items", [])
-                self.results_tree.delete(*self.results_tree.get_children())
-                for user in users:
-                    username = user["login"]
-                    avatar_url = user["avatar_url"]
-                    self.add_user_to_results(username, avatar_url)
-            else:
-                messagebox.showerror("API Error", f"Error {response.status_code}: {response.text}")
-        except Exception as e:
-            messagebox.showerror("Connection Error", str(e))
+        if not category:
+            messagebox.showwarning("Input Error", "Please select a category")
+            return
 
-    def add_user_to_results(self, username, avatar_url):
         try:
-            img_data = requests.get(avatar_url).content
-            pil_img = Image.open(BytesIO(img_data))
-            pil_img = pil_img.resize((40, 40), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(pil_img)
-            self.avatar_images[username] = photo
-            self.results_tree.insert("", tk.END, image=photo, values=(username,))
-        except Exception:
-            self.results_tree.insert("", tk.END, image="", values=(username,))
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except:
+            messagebox.showerror("Input Error", "Date must be in YYYY-MM-DD format")
+            return
 
-    def add_to_favorites(self):
-        selected = self.results_tree.selection()
+        new_id = max([e["id"] for e in self.expenses], default=0) + 1
+        expense = {
+            "id": new_id,
+            "amount": amount,
+            "category": category,
+            "date": date_str
+        }
+        self.expenses.append(expense)
+        self.save_expenses_to_file()
+        self.clear_inputs()
+        self.apply_filter()
+
+    def clear_inputs(self):
+        self.amount_entry.delete(0, tk.END)
+        self.category_combo.current(0)
+        self.date_entry.delete(0, tk.END)
+        self.date_entry.insert(0, datetime.today().strftime("%Y-%m-%d"))
+
+    def delete_expense(self):
+        selected = self.tree.selection()
         if not selected:
-            messagebox.showwarning("No selection", "Please select a user from search results")
+            messagebox.showwarning("No selection", "Please select an expense to delete")
             return
         item = selected[0]
-        values = self.results_tree.item(item, "values")
-        if not values:
-            return
-        username = values[0]
-        if username not in self.favorites:
-            self.favorites.append(username)
-            self.update_favorites_display()
-        else:
-            messagebox.showinfo("Already exists", f"{username} is already in favorites")
+        expense_id = int(self.tree.item(item, "values")[0])
+        self.expenses = [e for e in self.expenses if e["id"] != expense_id]
+        self.save_expenses_to_file()
+        self.apply_filter()
 
-    def remove_from_favorites(self):
-        selected = self.fav_tree.selection()
-        if not selected:
-            messagebox.showwarning("No selection", "Please select a user from favorites")
-            return
-        item = selected[0]
-        username = self.fav_tree.item(item, "values")[0]
-        self.favorites.remove(username)
-        self.update_favorites_display()
+    def apply_filter(self):
+        category = self.filter_category.get()
+        from_date = self.from_date_entry.get().strip()
+        to_date = self.to_date_entry.get().strip()
 
-    def update_favorites_display(self):
-        self.fav_tree.delete(*self.fav_tree.get_children())
-        for user in self.favorites:
-            self.fav_tree.insert("", tk.END, values=(user,))
+        filtered = self.expenses[:]
+
+        if category != "All":
+            filtered = [e for e in filtered if e["category"] == category]
+
+        if from_date:
+            try:
+                from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+                filtered = [e for e in filtered if datetime.strptime(e["date"], "%Y-%m-%d") >= from_dt]
+            except:
+                messagebox.showerror("Filter Error", "Invalid from-date format. Use YYYY-MM-DD")
+                return
+
+        if to_date:
+            try:
+                to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+                filtered = [e for e in filtered if datetime.strptime(e["date"], "%Y-%m-%d") <= to_dt]
+            except:
+                messagebox.showerror("Filter Error", "Invalid to-date format. Use YYYY-MM-DD")
+                return
+
+        self.update_expenses_table(filtered)
+
+        total = sum(e["amount"] for e in filtered)
+        self.total_label.config(text=f"Total for filtered period: ${total:.2f}")
+
+    def update_expenses_table(self, expenses_list=None):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        if expenses_list is None:
+            expenses_list = self.expenses
+        for exp in expenses_list:
+            self.tree.insert("", tk.END, values=(exp["id"], f"{exp['amount']:.2f}", exp["category"], exp["date"]))
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GitHubUserFinder(root)
+    app = ExpenseTracker(root)
     root.mainloop()
+    __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+ENV/
+expenses.json
+.DS_Store
